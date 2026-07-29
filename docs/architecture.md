@@ -79,39 +79,45 @@ Para garantizar la consistencia entre `order-service` e `inventory-service` sin 
 ### Diagrama de Arquitectura Cloud (AWS)
 
 ```mermaid
-graph TB
-    Internet((Internet)) --> WAF[AWS WAF]
-    WAF --> CloudFront[Amazon CloudFront]
-    CloudFront --> ALB[Application Load Balancer]
+graph TD
+    Client([Internet]) --> WAF[AWS WAF / CloudFront]
+    WAF --> ALB[Application Load Balancer]
 
     subgraph VPC["AWS Cloud - VPC (us-east-1)"]
+        direction TD
+        
         subgraph PublicSubnets["Public Subnets"]
             ALB
-            NAT[NAT Gateways]
         end
 
-        subgraph AppTier["Private Subnets (App Tier)"]
-            subgraph ECSCluster["ECS Cluster (AWS Fargate)"]
-                ECS_Order[Order Service Tasks]
-                ECS_Inv[Inventory Service Tasks]
-                ECS_Notif[Notification Service Tasks]
-            end
-            ServiceConnect[ECS Service Connect / Discovery]
+        subgraph AppTier["Private Subnets - App Tier (ECS Fargate)"]
+            OrderSvc["order-service"]
+            InvSvc["inventory-service"]
+            NotifSvc["notification-service"]
+            SvcConnect["ECS Service Connect"]
         end
 
-        subgraph DataTier["Private Subnets (Data & Messaging Tier)"]
-            MSK[Amazon MSK - Managed Kafka]
-            Aurora_Order[(Amazon Aurora PostgreSQL - Order)]
-            Aurora_Inv[(Amazon Aurora PostgreSQL - Inventory)]
+        subgraph DataTier["Private Subnets - Data & Event Tier"]
+            MSK["Amazon MSK (Kafka)"]
+            DB_Order[("Aurora PostgreSQL (Order)")]
+            DB_Inv[("Aurora PostgreSQL (Inventory)")]
         end
     end
 
-    ECS_Order -->|Internal DNS| ServiceConnect
-    ServiceConnect --> ECS_Inv
-    ECS_Order --> Aurora_Order
-    ECS_Inv --> Aurora_Inv
-    ECS_Order --> MSK
-    MSK --> ECS_Notif
+    %% Enrutamiento de Entrada
+    ALB -->|/api/v1/orders| OrderSvc
+    ALB -->|/api/v1/inventory| InvSvc
+
+    %% Comunicación Este-Oeste
+    OrderSvc -->|REST / Service Connect| InvSvc
+    
+    %% Persistencia
+    OrderSvc --> DB_Order
+    InvSvc --> DB_Inv
+
+    %% Eventos
+    OrderSvc -->|Publish Events| MSK
+    MSK -->|Consume Events| NotifSvc
 ```
 
 ### Componentes y Criterio de Elección
