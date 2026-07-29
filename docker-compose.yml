@@ -1,38 +1,56 @@
 version: '3.8'
 
 services:
-  postgres-order:
-    image: postgres:15-alpine
-    container_name: postgres-order
-    environment:
-      POSTGRES_USER: order_user
-      POSTGRES_PASSWORD: order_password
-      POSTGRES_DB: order_db
+  # ---------------------------------------------------------------------------
+  # MICROSERVICIOS (Rutas relativas hacia carpetas hermanas)
+  # ---------------------------------------------------------------------------
+  order-service:
+    build:
+      context: ../orderinvent-order-service   # <-- Sale de platform y entra al repo de order
+      dockerfile: Dockerfile
+    container_name: orderinvent-order-service
     ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U order_user -d order_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  postgres-inventory:
-    image: postgres:15-alpine
-    container_name: postgres-inventory
+      - "8080:8080"
     environment:
-      POSTGRES_USER: inv_user
-      POSTGRES_PASSWORD: inv_password
-      POSTGRES_DB: inventory_db
-    ports:
-      - "5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U inv_user -d inventory_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:order_db;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INVENTORY_SERVICE_URL: http://inventory-service:8081
+    depends_on:
+      - kafka
+    networks:
+      - orderinvent-net
 
+  inventory-service:
+    build:
+      context: ../orderinvent-inventory-service # <-- Sale de platform y entra al repo de inventory
+      dockerfile: Dockerfile
+    container_name: orderinvent-inventory-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:inventory_db;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    networks:
+      - orderinvent-net
+
+  notification-service:
+    build:
+      context: ../orderinvent-notification-service # <-- Sale de platform y entra al repo de notification
+      dockerfile: Dockerfile
+    container_name: orderinvent-notification-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      - kafka
+    networks:
+      - orderinvent-net
+
+  # ---------------------------------------------------------------------------
+  # INFRAESTRUCTURA COMPARTIDA (Kafka / Eventos)
+  # ---------------------------------------------------------------------------
   kafka:
-    image: apache/kafka:3.7.0
+    image: confluentinc/cp-kafka:7.5.0
     container_name: kafka
     ports:
       - "9092:9092"
@@ -45,9 +63,15 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:29093'
-      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
-      KAFKA_CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    networks:
+      - orderinvent-net
+
+networks:
+  orderinvent-net:
+    driver: bridge
