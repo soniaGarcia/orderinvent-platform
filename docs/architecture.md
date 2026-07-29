@@ -78,6 +78,7 @@ Para garantizar la consistencia entre `order-service` e `inventory-service` sin 
 
 ### Diagrama de Arquitectura Cloud (AWS)
 
+```mermaid
 graph TB
     Internet((Internet)) --> WAF[AWS WAF]
     WAF --> CloudFront[Amazon CloudFront]
@@ -111,6 +112,7 @@ graph TB
     ECS_Inv --> Aurora_Inv
     ECS_Order --> MSK
     MSK --> ECS_Notif
+```
 
 ### Componentes y Criterio de Elección
 
