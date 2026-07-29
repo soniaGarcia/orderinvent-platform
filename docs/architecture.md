@@ -78,20 +78,19 @@ Para garantizar la consistencia entre `order-service` e `inventory-service` sin 
 
 ### Diagrama de Arquitectura Cloud (AWS)
 
-```mermaid
 graph TB
     Internet((Internet)) --> WAF[AWS WAF]
     WAF --> CloudFront[Amazon CloudFront]
     CloudFront --> ALB[Application Load Balancer]
 
-    subgraph AWS Cloud - VPC (us-east-1)
-        subgraph Public Subnets
+    subgraph VPC["AWS Cloud - VPC (us-east-1)"]
+        subgraph PublicSubnets["Public Subnets"]
             ALB
             NAT[NAT Gateways]
         end
 
-        subgraph Private Subnets (App Tier)
-            subgraph ECS Cluster (AWS Fargate)
+        subgraph AppTier["Private Subnets (App Tier)"]
+            subgraph ECSCluster["ECS Cluster (AWS Fargate)"]
                 ECS_Order[Order Service Tasks]
                 ECS_Inv[Inventory Service Tasks]
                 ECS_Notif[Notification Service Tasks]
@@ -99,7 +98,7 @@ graph TB
             ServiceConnect[ECS Service Connect / Discovery]
         end
 
-        subgraph Private Subnets (Data & Messaging Tier)
+        subgraph DataTier["Private Subnets (Data & Messaging Tier)"]
             MSK[Amazon MSK - Managed Kafka]
             Aurora_Order[(Amazon Aurora PostgreSQL - Order)]
             Aurora_Inv[(Amazon Aurora PostgreSQL - Inventory)]
@@ -112,7 +111,6 @@ graph TB
     ECS_Inv --> Aurora_Inv
     ECS_Order --> MSK
     MSK --> ECS_Notif
-```
 
 ### Componentes y Criterio de Elección
 
