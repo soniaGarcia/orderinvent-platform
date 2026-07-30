@@ -15,10 +15,10 @@ Para asegurar que las rutas relativas de construcción funcionen correctamente, 
 
 ```text
 /tu-carpeta-de-trabajo/
-├── orderinvent-platform/
-├── orderinvent-order-service/
-├── orderinvent-inventory-service/
-└── orderinvent-notification-service/
+├── orderinvent-platform/               # Este repositorio (Orquestación Docker)
+├── orderinvent-order-service/          # Microservicio de Pedidos (Spring Boot)
+├── orderinvent-inventory-service/      # Microservicio de Inventario (Spring Boot)
+└── orderinvent-notification-service/   # Microservicio Consumidor (Spring Boot)
 ```
 
 ---
@@ -44,11 +44,20 @@ docker compose ps
 
 ### 1. Inicializar Stock en Inventory Service (Puerto 8081)
 ```bash
+# Cargar Producto A
 curl -X POST http://localhost:8081/api/v1/inventory \
   -H "Content-Type: application/json" \
   -d '{
-    "productId": "1",
+    "productCode": "PROD-A100",
     "stock": 50
+  }'
+
+# Cargar Producto B
+curl -X POST http://localhost:8081/api/v1/inventory \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productCode": "PROD-B200",
+    "stock": 30
   }'
 ```
 
@@ -57,9 +66,10 @@ curl -X POST http://localhost:8081/api/v1/inventory \
 curl -X POST http://localhost:8080/api/v1/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "customerEmail": "cliente@logistics.com",
+    "customerId": "CLI-1020",
     "items": [
-      { "productId": "1", "quantity": 2 }
+      { "productCode": "PROD-A100", "quantity": 2 },
+      { "productCode": "PROD-B200", "quantity": 1 }
     ]
   }'
 ```
@@ -70,9 +80,10 @@ curl -X POST http://localhost:8080/api/v1/orders \
 curl -X POST http://localhost:8080/api/v1/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "customerEmail": "cliente@logistics.com",
+    "customerId": "CLI-1020",
     "items": [
-      { "productId": "1", "quantity": 999 }
+      { "productCode": "PROD-A100", "quantity": 1 },
+      { "productCode": "PROD-B200", "quantity": 999 }
     ]
   }'
 ```
@@ -90,9 +101,9 @@ Envía una nueva orden hacia `order-service`:
 curl -X POST http://localhost:8080/api/v1/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "customerEmail": "cliente@logistics.com",
+    "customerId": "CLI-1020",
     "items": [
-      { "productId": "1", "quantity": 1 }
+      { "productCode": "PROD-A100", "quantity": 1 }
     ]
   }'
 ```
@@ -107,5 +118,9 @@ docker compose logs -f notification-service
 
 ## Enlaces Utiles de la Aplicación Local
 * **Swagger UI (Order Service):** `http://localhost:8080/swagger-ui/index.html`
+* **Swagger UI (Inventory Service):** `http://localhost:8081/swagger-ui/index.html`
+* **Swagger UI (Notification Service):** `http://localhost:8082/swagger-ui/index.html`
 * **Kafdrop UI (Inspección de Kafka):** `http://localhost:9000`
-* **Health Check (Actuator):** `http://localhost:8080/actuator/health`
+* **Health Check (Actuator Order Service):** `http://localhost:8080/actuator/health`
+* **Health Check (Actuator Inventory Service):** `http://localhost:8081/actuator/health`
+* **Health Check (Actuator Notification Service):** `http://localhost:8082/actuator/health`
