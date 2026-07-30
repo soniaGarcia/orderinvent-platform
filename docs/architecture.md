@@ -28,6 +28,7 @@ Este sistema representa la primera fase de modernización del monolito logístic
 ```mermaid
 graph TD
     Client(["Cliente / HTTP REST"]) -->|"POST /api/v1/orders"| OrderSvc["order-service :8080"]
+    Client -->|"GET /api/v1/notifications/*"| NotifSvc["notification-service :8082"]
     
     subgraph REST ["Synchronous REST Boundary"]
         OrderSvc -->|"POST /api/v1/inventory/deduct"| InvSvc["inventory-service :8081"]
@@ -36,11 +37,12 @@ graph TD
     subgraph Storage ["Isolated Storage Boundary"]
         OrderSvc --> DB_Order[("Order DB")]
         InvSvc --> DB_Inv[("Inventory DB")]
+        NotifSvc --> DB_Notif[("Notification DB")]
     end
 
     subgraph Event ["Event-Driven Boundary"]
         OrderSvc -->|"Publish Events"| Kafka{"Apache Kafka :9092"}
-        Kafka -->|"Consume Events"| NotifSvc["notification-service :8082"]
+        Kafka -->|"Consume Events"| NotifSvc
     end
 ```
 
@@ -110,14 +112,17 @@ graph TD
             MSK["Amazon MSK (Managed Kafka)"]
             DB_Order[("Aurora PostgreSQL (Order DB)")]
             DB_Inv[("Aurora PostgreSQL (Inventory DB)")]
+            DB_Notif[("Aurora PostgreSQL (Notification DB)")]
         end
     end
 
     ALB -->|"/api/v1/orders"| OrderTask
     ALB -->|"/api/v1/inventory"| InvTask
+    ALB -->|"/api/v1/notifications"| NotifTask
     OrderTask -->|"REST via Service Connect"| InvTask
     OrderTask --> DB_Order
     InvTask --> DB_Inv
+    NotifTask --> DB_Notif
     OrderTask --> MSK
     MSK --> NotifTask
 ```

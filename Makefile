@@ -12,6 +12,7 @@ help:
 	@echo "  make seed                - Carga datos/stock iniciales en Inventory Service"
 	@echo "  make test-flow           - Ejecuta un pedido exitoso End-to-End"
 	@echo "  make test-circuit-breaker- Simula caída de inventario y prueba resiliencia"
+	@echo "  make test-notifications  - Muestra las notificaciones de un pedido"
 	@echo "  make clean               - Elimina volúmenes e imágenes huérfanas"
 	@echo "======================================================================="
 
@@ -58,6 +59,12 @@ test-circuit-breaker:
 	@echo "\n✅ Orden guardada como PENDING via Resilience4j."
 	@echo "🔄 Reiniciando inventory-service..."
 	docker compose start inventory-service
-
+	
+test-notifications:
+	@echo "🔍 Consultando historial de notificaciones para un pedido..."
+	curl -s -X GET http://localhost:8082/api/v1/notifications/order/ORD-109283
+	@echo "\n"	
+	
 clean:
 	docker compose down -v --remove-orphans
+	
