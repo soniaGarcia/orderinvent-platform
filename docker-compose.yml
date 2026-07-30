@@ -71,6 +71,17 @@ services:
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
     networks:
       - orderinvent-net
+      
+kafdrop:
+  image: obsidiandynamics/kafdrop:latest
+  container_name: orderinvent-kafdrop
+  ports:
+    - "9000:9000"
+  environment:
+    KAFKA_BROKERCONNECT: kafka:29092
+  depends_on:
+    - kafka
+      
 
 networks:
   orderinvent-net:
