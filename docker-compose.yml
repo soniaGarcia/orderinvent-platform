@@ -45,19 +45,11 @@ services:
       - kafka
     networks:
       - orderinvent-net
-  kafdrop:
-    image: obsidiandynamics/kafdrop:latest
-    container_name: orderinvent-kafdrop
-    ports:
-      - "9000:9000"
-    environment:
-      KAFKA_BROKERCONNECT: kafka:29092
-    depends_on:
-      - kafka
 
   # ---------------------------------------------------------------------------
   # INFRAESTRUCTURA COMPARTIDA (Kafka / Eventos)
   # ---------------------------------------------------------------------------
+
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: kafka
@@ -78,9 +70,28 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     networks:
-      - orderinvent-net      
+      - orderinvent-net
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: orderinvent-kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - orderinvent-net
 
 networks:
   orderinvent-net:
-    driver: bridge
+    driver: bridge     
