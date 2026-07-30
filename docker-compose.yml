@@ -45,6 +45,15 @@ services:
       - kafka
     networks:
       - orderinvent-net
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: orderinvent-kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:29092
+    depends_on:
+      - kafka
 
   # ---------------------------------------------------------------------------
   # INFRAESTRUCTURA COMPARTIDA (Kafka / Eventos)
@@ -70,18 +79,7 @@ services:
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
     networks:
-      - orderinvent-net
-      
-kafdrop:
-  image: obsidiandynamics/kafdrop:latest
-  container_name: orderinvent-kafdrop
-  ports:
-    - "9000:9000"
-  environment:
-    KAFKA_BROKERCONNECT: kafka:29092
-  depends_on:
-    - kafka
-      
+      - orderinvent-net      
 
 networks:
   orderinvent-net:
