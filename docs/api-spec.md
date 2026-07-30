@@ -1,6 +1,6 @@
-# ?? Especificaci®Æn de Contratos de API REST y Eventos Async (OpenAPI & AsyncAPI)
+# üìë Especificaci√≥n de Contratos de API REST y Eventos Async (OpenAPI & AsyncAPI)
 
-Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™ncronos v®™a REST y as®™ncronos v®™a Kafka) expuestos y consumidos por los microservicios del sistema **OrderInvent**.
+Este documento define la especificaci√≥n de los contratos de comunicaci√≥n (s√≠ncronos v√≠a REST y as√≠ncronos v√≠a Kafka) expuestos y consumidos por los microservicios del sistema **OrderInvent**.
 
 ---
 
@@ -9,7 +9,7 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
 ### Base Path: `/api/v1/inventory`
 
 #### 1.1. Registrar / Cargar Stock Inicial
-* **M®¶todo HTTP:** `POST /`
+* **M√©todo HTTP:** `POST /`
 * **Headers:** `Content-Type: application/json`
 * **Request Body:**
   ```json
@@ -20,10 +20,10 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
   ```
 * **Respuestas:**
   * `200 OK`: Stock cargado o actualizado exitosamente.
-  * `400 Bad Request`: Datos de solicitud inv®¢lidos.
+  * `400 Bad Request`: Datos de solicitud inv√°lidos.
 
-#### 1.2. Descuento At®Æmico en Lote (All-or-Nothing)
-* **M®¶todo HTTP:** `POST /deduct`
+#### 1.2. Descuento At√≥mico en Lote (All-or-Nothing)
+* **M√©todo HTTP:** `POST /deduct`
 * **Headers:** `Content-Type: application/json`
 * **Request Body:**
   ```json
@@ -42,8 +42,8 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
 
 ### Base Path: `/api/v1/orders`
 
-#### 2.1. Crear Pedido Multi-®™tem
-* **M®¶todo HTTP:** `POST /`
+#### 2.1. Crear Pedido Multi-√çtem
+* **M√©todo HTTP:** `POST /`
 * **Headers:** `Content-Type: application/json`
 * **Request Body:**
   ```json
@@ -71,7 +71,7 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
       "orderId": "ORD-109284",
       "customerId": "CLI-1020",
       "status": "REJECTED",
-      "rejectReason": "Stock insuficiente para uno o m®¢s productos solicitados."
+      "rejectReason": "Stock insuficiente para uno o m√°s productos solicitados."
     }
     ```
   * `202 Accepted` - **Estado `PENDING` (Fallback Circuit Breaker):**
@@ -80,7 +80,7 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
       "orderId": "ORD-109285",
       "customerId": "CLI-1020",
       "status": "PENDING",
-      "rejectReason": "Servicio de inventario no disponible. Orden encolada para procesamiento as®™ncrono."
+      "rejectReason": "Servicio de inventario no disponible. Orden encolada para procesamiento as√≠ncrono."
     }
     ```
 
@@ -90,11 +90,11 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
 
 ### Base Path: `/api/v1/notifications`
 
-#### 3.1. Consultar Historial de Notificaciones y Auditor®™a por ID de Pedido
-* **M®¶todo HTTP:** `GET /order/{orderId}`
+#### 3.1. Consultar Historial de Notificaciones y Auditor√≠a por ID de Pedido
+* **M√©todo HTTP:** `GET /order/{orderId}`
 * **Path Variables:** `orderId` (String, ej: `"ORD-109283"`)
 * **Respuestas:**
-  * `200 OK`: Devuelve el listado de logs de auditor®™a para el pedido indicado.
+  * `200 OK`: Devuelve el listado de logs de auditor√≠a para el pedido indicado.
     ```json
     [
       {
@@ -103,7 +103,7 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
         "orderStatus": "CONFIRMED",
         "channel": "EMAIL",
         "status": "SENT",
-        "messageContent": "Pedido confirmado con ®¶xito.",
+        "messageContent": "Pedido confirmado con √©xito.",
         "createdAt": "2026-03-30T10:15:31Z"
       },
       {
@@ -120,9 +120,9 @@ Este documento define la especificaci®Æn de los contratos de comunicaci®Æn (s®™n
 
 ---
 
-## 4. Contratos de Eventos As®™ncronos (Apache Kafka)
+## 4. Contratos de Eventos As√≠ncronos (Apache Kafka)
 
-### T®Æpico: `order-events` (Consumer Group: `notification-group`)
+### T√≥pico: `order-events` (Consumer Group: `notification-group`)
 
 Esquema de payload JSON publicado por `order-service` y consumido por `notification-service`:
 
@@ -135,4 +135,4 @@ Esquema de payload JSON publicado por `order-service` y consumido por `notificat
   }
   ```
 * **Posibles Valores de `status`:** `CONFIRMED`, `REJECTED`, `PENDING`.
-* **Garant®™as de Entrega e Idempotencia:** `notification-service` eval®≤a la combinaci®Æn de (`orderId`, `orderStatus`, `status=SENT`). Si el evento ya fue despachado previamente, registra el intento como `SKIPPED_DUPLICATE` en la tabla `notification_logs` sin reenviar el correo/SMS.
+* **Garant√≠as de Entrega e Idempotencia:** `notification-service` eval√∫a la combinaci√≥n de (`orderId`, `orderStatus`, `status=SENT`). Si el evento ya fue despachado previamente, registra el intento como `SKIPPED_DUPLICATE` en la tabla `notification_logs` sin reenviar el correo/SMS.
