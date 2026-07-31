@@ -13,11 +13,11 @@ Este sistema representa la primera fase de modernización del monolito logístic
 
 2. **Procesamiento Batch Atómico (All-or-Nothing):**
    * La creación de órdenes admite múltiples productos por solicitud.
-   * `inventory-service` procesa la lista de ítems en una única transacción: si algún ítem no posee stock suficiente, la transacción ejecuta un *rollback* completo y la orden se marca como `REJECTED`.
+   * `inventory-service` procesa la lista de ítems en una única transacción: si algún ítem no posee stock suficiente, la transacción ejecuta un *rollback* completo y la orden se marca como `RECHAZADO`.
 
 3. **Resiliencia y Fallback:**
    * Las peticiones síncronas entre `order-service` e `inventory-service` están protegidas por **Resilience4j**.
-   * Al abrirse el circuito, se guarda el estado como `PENDING` y se emite un evento a Kafka para su posterior reconciliación asíncrona.
+   * Al abrirse el circuito, se guarda el estado como `PENDIENTE` y se emite un evento a Kafka para su posterior reconciliación asíncrona.
 
 ---
 
@@ -79,9 +79,9 @@ sequenceDiagram
         end
     else Indisponibilidad / Red Caída (Circuit Breaker OPEN / Fallback)
         Note over Order,Inv: Resilience4j Fallback Triggered
-        Order->>Order: Estado = PENDING
+        Order->>Order: Estado = PENDIENTE
         Order->>Kafka: Publica OrderPendingEvent (incluye items[])
-        Order-->>Cliente: 202 Accepted (Estado: PENDING)
+        Order-->>Cliente: 202 Accepted (Estado: PENDIENTE)
         
         Note over Inv,Kafka: RECONCILIACIÓN ASÍNCRONA (SAGA)
         Note over Inv: inventory-service se restablece (UP)
@@ -214,8 +214,8 @@ graph TD
   * **Telemetría Nivel Red:** Generación automática de métricas de latencia y errores de red sin alterar el código Java/Spring Boot.
 
 #### C. Persistencia Aislada: Amazon Aurora PostgreSQL Serverless v2
-* **Criterio de Selección:** Garantiza el cumplimiento del patrón *Database per Service* con auto-escalado instantáneo de 0.5 a 128 ACUs (*Aurora Capacity Units*), ajustándose automáticamente al volumen de transacciones por segundo (TPS).
-* **Alta Disponibilidad:** Despliegue Multi-AZ con réplicas de lectura de baja latencia y conmutación por error (*failover*) automática en menos de 30 segundos.
+* **Criterio de Selección:** Garantiza el cumplimiento del patrón *Database per Service* con auto-escalado instantáneo, ajustándose automáticamente al volumen de transacciones por segundo (TPS).
+* **Alta Disponibilidad:** Despliegue Multi-AZ con réplicas de lectura de baja latencia y conmutación por error (*failover*) automática.
 * **Seguridad y Red:** Ubicadas exclusivamente en subredes privadas aisladas de datos (`Isolated Data Subnets`), inaccesibles desde Internet y con reglas de *Security Groups* que solo permiten tráfico entrante desde las Tareas ECS correspondientes.
 
 #### D. Bus de Eventos: Amazon MSK (Managed Streaming for Apache Kafka)
@@ -245,13 +245,37 @@ graph LR
     D --> E["Vulnerability Scan - Trivy"]
     E --> F["Push Image to AWS ECR"]
     F --> G["Update ECS Task Definition"]
-    G --> H["Rolling Deployment on ECS Fargate"]
+    G --> H{"Estrategia de Despliegue"}
+    H -->|"Rolling Update"| I["ECS Fargate (Predeterminado)"]
+    H -->|"Blue / Green"| J["CodeDeploy + ALB (Releases Críticos)"]
 ```
 
-### 5.2. Estrategia de Zero Downtime
-* **Estrategia Rolling Update:** ECS reemplaza progresivamente las Tareas antiguas manteniendo `minimumHealthyPercent = 100` y `maximumPercent = 200`.
-* **Deployment Circuit Breaker:** ECS monitorea los *Health Checks* de las nuevas Tareas. Si las nuevas instancias fallan, realiza un *Rollback* automático instantáneo a la versión previa estable.
+### 5.2. Justificación Tecnológica de Herramientas
 
+-   ****GitHub Actions (CI/CD Runner):**** Se selecciona por su integración nativa con el repositorio de código, la capacidad de ejecutar flujos paralelos por microservicio mediante __Matrix Builds__ y su soporte nativo para `aws-actions` oficiales. Permite gestionar __Workflows__ reutilizables para `order-service`, `inventory-service` y `notification-service`.
+-   ****Amazon ECR (Elastic Container Registry):**** Registro privado de imágenes Docker en AWS con escaneo automático de vulnerabilidades (__Scan on Push__) cifrado con AWS KMS y políticas de ciclo de vida (__Lifecycle Policies__) para depurar automáticamente imágenes antiguas de staging/dev.
+-   ****AWS ECS Fargate & CodeDeploy (CD Execution):**** Orquestación del despliegue en subredes privadas, delegando a CodeDeploy la gestión avanzada de tráfico mediante balanceador de carga (ALB).
+
+---
+### 5.3. Estrategia Resiliencia en Despliegue
+
+Para esta arquitectura se adopta un ****enfoque híbrido adaptativo****, utilizando ****Rolling Update**** como estrategia principal predeterminada y ****Blue/Green**** para versiones mayores.
+
+#### A. Configuración de Rolling Update (Estrategia Predeterminada)
+
+Configurada nativamente en ECS Fargate mediante las siguientes variables de control de capacidad:
+
+-   **`**minimumHealthyPercent = 100**`******:**** Garantiza que la capacidad contratada nunca baje del 100% durante el despliegue, previniendo degradaciones de servicio ante picos de tráfico.
+-   **`**maximumPercent = 200**`******:**** Permite a ECS duplicar temporalmente las Tareas para levantar la versión nueva antes de desaprovisionar la versión anterior.
+
+#### B. Mecanismos de Verificación y Tolerancia a Fallos durante el Despliegue
+
+1.  ****Detección de Salud Basada en Actuator (******`**Readiness Probes**`******):****
+    -   El ALB redirige tráfico a una nueva Tarea ECS ****únicamente cuando el endpoint**** **`**/actuator/health/readiness**`** ****responda**** **`**200 OK**`**.
+    -   Esto asegura que las conexiones a PostgreSQL (Aurora) y la suscripción a los tópicos de Kafka (MSK) estén totalmente inicializadas antes de recibir peticiones de clientes.
+2.  ****ECS Deployment Circuit Breaker:****
+    -   Se activa la funcionalidad nativa `deploymentCircuitBreaker: { enable: true, rollback: true }`.
+    -   Si las nuevas tareas fallan consecutivamente los __Health Checks__ del ALB durante la fase de lanzamiento, el despliegue se detiene automáticamente, elimina los contenedores defectuosos y restablece el servicio a la versión anterior estable sin intervención manual.
 ---
 
 ## 6. Registros de Decisiones de Arquitectura (ADRs)
@@ -265,7 +289,7 @@ graph LR
 ### ADR 002: Manejo de Resiliencia mediante Circuit Breaker
 * **Estado:** Aceptado
 * **Contexto:** La validación de inventario al crear una orden es una llamada síncrona propensa a fallar si `inventory-service` experimenta latencia o caídas.
-* **Decisión:** Integración de Resilience4j en `order-service`. Ante una interrupción del servicio de inventario, la orden se guarda en estado `PENDING` y se emite un evento a Kafka para garantizar tolerancia a fallos.
+* **Decisión:** Integración de Resilience4j en `order-service`. Ante una interrupción del servicio de inventario, la orden se guarda en estado `PENDIENTE` y se emite un evento a Kafka para garantizar tolerancia a fallos.
 * **Consecuencias:** Evita fallos en cascada, protegiendo los hilos del servidor y garantizando que la orden del cliente no se pierda.
 
 ### ADR 003: Estandarización del Código SKU (`productCode`)
@@ -304,13 +328,25 @@ graph LR
 
 ---
 
-## 8. Principios de Diseño SOLID y Buenas Prácticas (Spring Boot 3)
+## 8. Estimación de Costos y Palancas de Optimización
 
-1. **Single Responsibility Principle (SRP):**
-   * *Separation of Concerns:* `@RestController` (adaptador HTTP y validación), `@Service` (lógica de negocio y orquestación), `@Repository` (persistencia relacional).
-2. **Open/Closed Principle (OCP):**
-   * Extensibilidad mediante interfaces y patrones de estrategia (*Strategy Pattern*) para la publicación de eventos y notificaciones sin modificar código existente.
-3. **Liskov Substitution & Dependency Inversion (LSP / DIP):**
-   * Inyección de dependencias estricta sobre interfaces mediante constructores (`@RequiredArgsConstructor` de Lombok), desacoplando la implementación y facilitando pruebas unitarias con Mocks (*Mockito*).
-4. **Interface Segregation Principle (ISP):**
-   * Uso de DTOs específicos desacoplados de las entidades JPA de persistencia, evitando la sobreexposición de datos en la API REST.
+### 8.1. Componentes que Concentran el Mayor Costo
+
+1.  ****Amazon MSK (Managed Kafka):**** Representa el mayor costo fijo. Al desplegar un clúster de Kafka administrado en múltiples Zonas de Disponibilidad (Multi-AZ) para garantizar cero pérdida de eventos en el patrón Saga, se paga por nodos dedicados y almacenamiento persistente encendidos 24/7.
+2.  ****Amazon Aurora Serverless v2:**** Es el segundo componente en impacto. Mantener tres bases de datos relacionales independientes para cumplir con el patrón __Database per Service__ implica pagar el mínimo de capacidad y almacenamiento distribuido por triplicado.
+3.  ****Tráfico de Red y NAT Gateways:**** La comunicación privada entre subredes y la salida hacia servicios de AWS o Internet genera cobros por hora por gateway más el volumen de datos procesados.
+
+### 8.2. Palancas de Optimización
+
+Para maximizar el retorno de inversión sin comprometer la resiliencia del sistema, se definen las siguientes estrategias:
+
+-   ****Para el Cómputo (ECS Fargate):****
+-   -   ****Fargate Spot:**** Combinar tareas estándar con tareas __Spot__ para el auto-escalado horizontal en picos de tráfico.
+    -   ****Compute Savings Plans:**** Aplicar compromisos de uso a 1 o 3 años para el tráfico base estimado.
+-   ****Para la Capa de Eventos (Kafka):****
+-   -   ****MSK Serverless en No-Producción:**** En ambientes de desarrollo y pruebas (QA), reemplazar el clúster dedicado de MSK por ****MSK Serverless****, pagando únicamente por los eventos transmitidos y reduciendo el costo de eventos en dev/test.
+-   ****Para la Capa de Datos (Aurora):****
+-   -   ****Consolidación Logística en Desarrollo:**** En entornos locales o de desarrollo, consolidar las bases de datos en una sola instancia de Aurora (separadas por esquemas), manteniendo la separación en instancias físicas independientes únicamente para Producción.
+    -   ****Límites de Escalado:**** Configurar topes máximos en Aurora Serverless v2 para evitar costos descontrolados ante picos anómalos de consultas.
+-   ****Para la Red (Networking):****
+-   -   ****AWS PrivateLink (VPC Endpoints):**** Conectar los microservicios en Fargate directamente con AWS ECR, Secrets Manager y CloudWatch a través de la red interna de AWS, eliminando el tráfico por NAT Gateway y reduciendo sustancialmente el costo por transferencia de datos.
