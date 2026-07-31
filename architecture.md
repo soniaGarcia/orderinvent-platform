@@ -213,7 +213,7 @@ graph TD
   * **Resiliencia L7:** Balanceo de carga en capa de aplicación con reintentos automáticos, retardo de conexiones e interrupción de circuito a nivel de red.
   * **Telemetría Nivel Red:** Generación automática de métricas de latencia y errores de red sin alterar el código Java/Spring Boot.
 
-#### C. Persistencia Aislada: Amazon Aurora PostgreSQL Serverless v2
+#### C. Persistencia Aislada: Amazon Aurora PostgreSQL Serverless
 * **Criterio de Selección:** Garantiza el cumplimiento del patrón *Database per Service* con auto-escalado instantáneo, ajustándose automáticamente al volumen de transacciones por segundo (TPS).
 * **Alta Disponibilidad:** Despliegue Multi-AZ con réplicas de lectura de baja latencia y conmutación por error (*failover*) automática.
 * **Seguridad y Red:** Ubicadas exclusivamente en subredes privadas aisladas de datos (`Isolated Data Subnets`), inaccesibles desde Internet y con reglas de *Security Groups* que solo permiten tráfico entrante desde las Tareas ECS correspondientes.
@@ -335,7 +335,7 @@ Orquestada mediante ****AWS CodeDeploy**** y reglas del ****Application Load Bal
 ### 8.1. Componentes que Concentran el Mayor Costo
 
 1.  ****Amazon MSK (Managed Kafka):**** Representa el mayor costo fijo. Al desplegar un clúster de Kafka administrado en múltiples Zonas de Disponibilidad (Multi-AZ) para garantizar cero pérdida de eventos en el patrón Saga, se paga por nodos dedicados y almacenamiento persistente encendidos 24/7.
-2.  ****Amazon Aurora Serverless v2:**** Es el segundo componente en impacto. Mantener tres bases de datos relacionales independientes para cumplir con el patrón __Database per Service__ implica pagar el mínimo de capacidad y almacenamiento distribuido por triplicado.
+2.  ****Amazon Aurora Serverless:**** Es el segundo componente en impacto. Mantener tres bases de datos relacionales independientes para cumplir con el patrón __Database per Service__ implica pagar el mínimo de capacidad y almacenamiento distribuido por triplicado.
 3.  ****Tráfico de Red y NAT Gateways:**** La comunicación privada entre subredes y la salida hacia servicios de AWS o Internet genera cobros por hora por gateway más el volumen de datos procesados.
 
 ### 8.2. Palancas de Optimización
@@ -349,6 +349,6 @@ Para maximizar el retorno de inversión sin comprometer la resiliencia del siste
 -   -   ****MSK Serverless en No-Producción:**** En ambientes de desarrollo y pruebas (QA), reemplazar el clúster dedicado de MSK por ****MSK Serverless****, pagando únicamente por los eventos transmitidos y reduciendo el costo de eventos en dev/test.
 -   ****Para la Capa de Datos (Aurora):****
 -   -   ****Consolidación Logística en Desarrollo:**** En entornos locales o de desarrollo, consolidar las bases de datos en una sola instancia de Aurora (separadas por esquemas), manteniendo la separación en instancias físicas independientes únicamente para Producción.
-    -   ****Límites de Escalado:**** Configurar topes máximos en Aurora Serverless v2 para evitar costos descontrolados ante picos anómalos de consultas.
+    -   ****Límites de Escalado:**** Configurar topes máximos en Aurora Serverless para evitar costos descontrolados ante picos anómalos de consultas.
 -   ****Para la Red (Networking):****
 -   -   ****AWS PrivateLink (VPC Endpoints):**** Conectar los microservicios en Fargate directamente con AWS ECR, Secrets Manager y CloudWatch a través de la red interna de AWS, eliminando el tráfico por NAT Gateway y reduciendo sustancialmente el costo por transferencia de datos.
