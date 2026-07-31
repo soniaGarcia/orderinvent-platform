@@ -41,11 +41,11 @@ graph TD
     end
 
     subgraph Event ["Event-Driven Boundary (Saga Pattern)"]
-        OrderSvc -->|"1. Publica order-events (PENDIENTE)"| Kafka{"Apache Kafka :9092"}
+        OrderSvc -->|"1. Publish order-events (PENDIENTE)"| Kafka{"Apache Kafka :9092"}
         Kafka -->|"2. Consume order-events (PENDIENTE)"| InvSvc
-        InvSvc -->|"3. Publica inventory-events (SUCCESS/FAILED)"| Kafka
+        InvSvc -->|"3. Publish inventory-events (SUCCESS/FAILED)"| Kafka
         Kafka -->|"4. Consume inventory-events"| OrderSvc
-        Kafka -->|"5. Consume todos los eventos (Auditoría)"| NotifSvc
+        Kafka -->|"5. Consume events (Auditoría)"| NotifSvc
     end
 ```
 
@@ -183,6 +183,7 @@ graph TD
     ALB -->|"/api/v1/orders"| OrderTask
     ALB -->|"/api/v1/inventory"| InvTask
     ALB -->|"/api/v1/notifications"| NotifTask
+    
     OrderTask -->|"REST via Service Connect"| InvTask
     OrderTask --> DB_Order
     InvTask --> DB_Inv
@@ -190,7 +191,7 @@ graph TD
 
     OrderTask <-->|"Produce order-events / Consume inventory-events"| MSK
     InvTask <-->|"Consume order-events / Produce inventory-events"| MSK
-    MSK -->|"Consume all events"| NotifTask
+    MSK -->|"Consume all events (Auditoría)"| NotifTask
 ```
 
 ---
