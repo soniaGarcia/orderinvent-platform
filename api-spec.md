@@ -100,7 +100,7 @@ Este documento define la especificación de los contratos de comunicación (sín
       {
         "id": 1,
         "orderId": "ORD-109283",
-        "orderStatus": "CONFIRMED",
+        "orderStatus": "CONFIRMADO",
         "channel": "EMAIL",
         "status": "SENT",
         "messageContent": "Pedido confirmado con éxito.",
@@ -109,7 +109,7 @@ Este documento define la especificación de los contratos de comunicación (sín
       {
         "id": 2,
         "orderId": "ORD-109283",
-        "orderStatus": "CONFIRMED",
+        "orderStatus": "CONFIRMADO",
         "channel": "EMAIL",
         "status": "SKIPPED_DUPLICATE",
         "messageContent": "Evento duplicado ignorado.",
@@ -130,9 +130,9 @@ Esquema de payload JSON publicado por `order-service` y consumido por `notificat
   ```json
   {
     "orderId": "ORD-109283",
-    "status": "CONFIRMED",
+    "status": "CONFIRMADO",
     "message": "Su pedido ha sido procesado exitosamente."
   }
   ```
-* **Posibles Valores de `status`:** `CONFIRMED`, `REJECTED`, `PENDING`.
+* **Posibles Valores de `status`:** `CONFIRMADO`, `RECHAZADO`, `PENDIENTE`.
 * **Garantías de Entrega e Idempotencia:** `notification-service` evalúa la combinación de (`orderId`, `orderStatus`, `status=SENT`). Si el evento ya fue despachado previamente, registra el intento como `SKIPPED_DUPLICATE` en la tabla `notification_logs` sin reenviar el correo/SMS.
