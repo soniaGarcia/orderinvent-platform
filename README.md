@@ -117,7 +117,7 @@ curl -X POST http://localhost:8080/api/v1/orders \
 ```
 *Respuesta esperada:* HTTP 400 Bad Request con estado `RECHAZADO`.
 
-### 4. Prueba de Resiliencia (Circuit Breaker y Fallback)
+### 4. Prueba de Resiliencia (Circuit Breaker y Fallback a PENDIENTE)
 Apaga intencionalmente el servicio de inventario para simular una caída de red:
 
 ```bash
@@ -135,19 +135,31 @@ curl -X POST http://localhost:8080/api/v1/orders \
     ]
   }'
 ```
-*Respuesta esperada:* HTTP 202 Accepted con estado `PENDING`. El Circuit Breaker captura el fallo y envía el evento a Kafka.
+*Respuesta esperada:* HTTP 202 Accepted con estado **`PENDIENTE`**. El Circuit Breaker captura el fallo, registra la orden en base de datos y publica el evento en Kafka.
 
-Verifica la recepción del evento en `notification-service`:
-```bash
-docker compose logs -f notification-service
-```
+---
 
-### 5. Consultar Auditoría e Historial de Notificaciones (Puerto 8082)
-Una vez procesado el pedido, puedes consultar la auditoría de notificaciones registradas para dicho ID de orden:
+### 5. Prueba de Reconciliación Asíncrona (Saga Coreografiada)
+Con la orden anterior registrada en estado `PENDIENTE`, vuelve a encender el microservicio de inventario:
 
 ```bash
-curl -X GET http://localhost:8082/api/v1/notifications/order/ORD-109283
+docker compose start inventory-service
 ```
+
+Al iniciar, `inventory-service` consumirá automáticamente el evento `PENDIENTE` acumulado en Kafka, descontará el stock y enviará la confirmación hacia `order-service`.
+
+#### Verificación del Cierre de la Saga:
+1. **Consultar la orden en `order-service`:**
+   ```bash
+   curl -X GET http://localhost:8080/api/v1/orders/1
+   ```
+   *Respuesta esperada:* El estado habrá cambiado automáticamente de `PENDIENTE` a **`CONFIRMADO`**.
+
+2. **Consultar el Historial de Auditoría de Notificaciones:**
+   ```bash
+   curl -X GET http://localhost:8082/api/v1/notifications/order/1
+   ```
+   *Respuesta esperada:* Verás **dos registros de auditoría** para el mismo pedido: el primero con estado `PENDIENTE` (emitido durante la caída) y el segundo con estado `CONFIRMADO` (emitido al completarse la Saga).
 
 ---
 
