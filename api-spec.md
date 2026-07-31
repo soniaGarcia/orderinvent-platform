@@ -122,17 +122,39 @@ Este documento define la especificación de los contratos de comunicación (sín
 
 ## 4. Contratos de Eventos Asíncronos (Apache Kafka)
 
-### Tópico: `order-events` (Consumer Group: `notification-group`)
+### 4.1. Tópico: `order-events`
+* **Publicador:** `order-service`
+* **Consumidores:** `notification-service` (Grupo: `notification-group`), `inventory-service` (Grupo: `inventory-saga-group`).
+* **Propósito:** Notificar cambios de estado en las órdenes para auditoría y disparar la reconciliación asíncrona de la Saga.
 
-Esquema de payload JSON publicado por `order-service` y consumido por `notification-service`:
+#### Esquema del Payload JSON:
+```json
+{
+  "orderId": "ORD-109283",
+  "status": "CONFIRMADO",
+  "message": "Pedido confirmado y stock descontado.",
+  "items": [
+    { "productCode": "PROD-A100", "quantity": 2 },
+    { "productCode": "PROD-B200", "quantity": 1 }
+  ]
+}
+```
+* **Valores posibles de `status`:** `PENDIENTE`, `CONFIRMADO`, `RECHAZADO`.
+* **Garantías de Entrega e Idempotencia:** `notification-service` evalúa la combinación (`orderId`, `orderStatus`). Si el evento ya fue procesado, registra la traza como `SKIPPED_DUPLICATE` en la tabla `notification_logs` omitiendo el reenvío de avisos.
 
-* **Estructura del Mensaje (`OrderEventPayload`):**
-  ```json
-  {
-    "orderId": "ORD-109283",
-    "status": "CONFIRMADO",
-    "message": "Su pedido ha sido procesado exitosamente."
-  }
-  ```
-* **Posibles Valores de `status`:** `CONFIRMADO`, `RECHAZADO`, `PENDIENTE`.
-* **Garantías de Entrega e Idempotencia:** `notification-service` evalúa la combinación de (`orderId`, `orderStatus`, `status=SENT`). Si el evento ya fue despachado previamente, registra el intento como `SKIPPED_DUPLICATE` en la tabla `notification_logs` sin reenviar el correo/SMS.
+---
+
+### 4.2. Tópico: `inventory-events`
+* **Publicador:** `inventory-service`
+* **Consumidor:** `order-service` (Grupo: `order-saga-group`)
+* **Propósito:** Responder el resultado del procesamiento diferido de inventario durante la reconciliación de la Saga.
+
+#### Esquema del Payload JSON:
+```json
+{
+  "orderId": "ORD-109285",
+  "status": "INVENTORY_SUCCESS",
+  "message": "Stock descontado exitosamente en procesamiento diferido."
+}
+```
+* **Valores posibles de `status`:** `INVENTORY_SUCCESS`, `INVENTORY_FAILED`.

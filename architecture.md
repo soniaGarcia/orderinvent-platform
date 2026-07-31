@@ -84,6 +84,51 @@ sequenceDiagram
     Kafka-->>Notif: Consume Event
     Notif->>Notif: Procesar Notificación Asíncrona
 ```
+---
+
+### 3.3. Garantía de Consistencia y Manejo de Fallos Parciales (Saga Coreografiada Híbrida)
+
+Para garantizar la consistencia entre `order-service` e `inventory-service` bajo la filosofía de **Consistencia Eventual** (*Eventual Consistency*), el sistema combina comunicación síncrona REST para el tráfico habitual y un patrón **Saga por Coreografía Híbrida** respaldado por Apache Kafka para la resiliencia ante caídas del servicio de inventario.
+
+#### Diagrama de Secuencia: Reconciliación Asíncrona vía Saga
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Cliente
+    participant OS as order-service
+    participant IS as inventory-service
+    participant K as Apache Kafka
+    participant NS as notification-service
+
+    Note over OS,IS: 1. FASE DE FALLO Y AISLAMIENTO
+    Cliente->>OS: POST /api/v1/orders
+    OS->>IS: HTTP POST /deduct (Fallo / Timeout / 503)
+    IS--xOS: Service Unavailable
+    Note over OS: Circuit Breaker ejecuta Fallback
+    OS->>OS: Persiste Orden en estado PENDIENTE
+    OS-->>Cliente: HTTP 202 Accepted (Estado: PENDIENTE)
+    OS->>K: Publica Evento PENDIENTE (Tópico: order-events)
+    K->>NS: Consume Evento PENDIENTE
+    NS->>NS: Guarda Log Auditoría #1 (PENDIENTE)
+
+    Note over IS,K: 2. FASE DE RECUPERACIÓN Y RECONCILIACIÓN (Saga)
+    Note over IS: inventory-service se restablece (UP)
+    IS->>K: Consume eventos PENDIENTE acumulados (Tópico: order-events)
+    IS->>IS: Descuenta Stock en BD de Inventario
+    alt Stock Suficiente
+        IS->>K: Publica Evento INVENTORY_SUCCESS (Tópico: inventory-events)
+        K->>OS: Consume Evento INVENTORY_SUCCESS
+        OS->>OS: Actualiza Orden a CONFIRMADO
+        OS->>K: Publica Evento CONFIRMADO (Tópico: order-events)
+    else Stock Insuficiente
+        IS->>K: Publica Evento INVENTORY_FAILED (Tópico: inventory-events)
+        K->>OS: Consume Evento INVENTORY_FAILED
+        OS->>OS: Actualiza Orden a RECHAZADO
+        OS->>K: Publica Evento RECHAZADO (Tópico: order-events)
+    end
+
+    K->>NS: Consume Evento Final (CONFIRMADO / RECHAZADO)
+    NS->>NS: Guarda Log Auditoría #2 (CONFIRMADO / RECHAZADO)
 
 ---
 
@@ -215,6 +260,13 @@ graph LR
 * **Contexto:** Evaluación de la plataforma de orquestación de contenedores en AWS para equilibrar flexibilidad, costo y complejidad operativa.
 * **Decisión:** Seleccionar AWS ECS Fargate para el cómputo de la plataforma.
 * **Consecuencias:** Elimina la complejidad operativa de administrar nodos Kubernetes o clústeres EC2, reduciendo el costo total de propiedad (TCO).
+
+### ADR 006: Saga Coreografiada Híbrida para Reconciliación Asíncrona
+* **Estado:** Aceptado
+* **Contexto:** Cuando `inventory-service` está caído, el Fallback de Circuit Breaker en `order-service` asigna el estado `PENDIENTE`. Sin un mecanismo de reconciliación, las órdenes quedan en un estado huérfano de forma permanente.
+* **Decisión:** Implementar una Saga por Coreografía utilizando Apache Kafka como bus de eventos duradero. `inventory-service` consume eventos en estado `PENDIENTE` al reiniciar, procesa el descuento de stock diferido y responde vía el tópico `inventory-events` para que `order-service` actualice el estado final (`CONFIRMADO` o `RECHAZADO`).
+* **Consecuencias:** Se garantiza la consistencia eventual sin acoplamiento síncrono ni bloqueos de transacciones cruzadas. Permite a `notification-service` registrar la trazabilidad histórica completa del pedido.
+
 
 ---
 
