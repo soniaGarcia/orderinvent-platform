@@ -203,7 +203,7 @@ graph TD
 * **Políticas de Auto Scaling:** Escalado horizontal (*Target Tracking*) configurado para responder dinámicamente a la carga:
   * Utilización media de CPU > 70%.
   * Utilización media de Memoria > 80%.
-  * Concurrencia en ALB > 1,000 peticiones por minuto por réplica.
+  * Concurrencia en Application Load Balancer > 1,000 peticiones por minuto por réplica.
 * **Task Definitions:** Diseñadas bajo el principio de mínimo privilegio, asignando roles IAM específicos por tarea (`Task Role`) y roles de ejecución para descarga de imágenes de ECR e inyección de logs (`Task Execution Role`).
 
 #### B. Comunicaciones Internas: ECS Service Connect
@@ -268,50 +268,52 @@ Configurada nativamente en ECS Fargate mediante las siguientes variables de cont
 -   **`**minimumHealthyPercent = 100**`******:**** Garantiza que la capacidad contratada nunca baje del 100% durante el despliegue, previniendo degradaciones de servicio ante picos de tráfico.
 -   **`**maximumPercent = 200**`******:**** Permite a ECS duplicar temporalmente las Tareas para levantar la versión nueva antes de desaprovisionar la versión anterior.
 
-#### B. Mecanismos de Verificación y Tolerancia a Fallos durante el Despliegue
+#### B. Configuración de Blue/Green Deployment (Releases Críticos / Major)
+
+Orquestada mediante ****AWS CodeDeploy**** y reglas del ****Application Load Balancer (ALB)**** para cambios estructurales de API o esquema:
+
+-   ****Target Groups Duales:**** Se mantienen dos Target Groups en el ALB (`TG-Blue` activo y `TG-Green` de staging).
+-   ****Conmutación Instantánea (Cutover):**** La nueva versión se despliega de forma aislada en `TG-Green`. Tras ejecutar pruebas de humo automatizadas en un puerto de prueba, CodeDeploy conmuta el 100% del tráfico de producción en menos de 1 segundo.
+-   ****Periodo de Retención (****_****Baking Time****_****):**** El entorno __Blue__ se mantiene activo en reserva durante 30 minutos post-despliegue, permitiendo un __Rollback__ instantáneo de 1-click si las métricas de negocio o error se degradan.
+
+#### C. Mecanismos de Verificación y Tolerancia a Fallos durante el Despliegue
 
 1.  ****Detección de Salud Basada en Actuator (******`**Readiness Probes**`******):****
-    -   El ALB redirige tráfico a una nueva Tarea ECS ****únicamente cuando el endpoint**** **`**/actuator/health/readiness**`** ****responda**** **`**200 OK**`**.
+    -   El Application Load Balancer redirige tráfico a una nueva Tarea ECS ****únicamente cuando el endpoint**** **`**/actuator/health/readiness**`** ****responda**** **`**200 OK**`**.
     -   Esto asegura que las conexiones a PostgreSQL (Aurora) y la suscripción a los tópicos de Kafka (MSK) estén totalmente inicializadas antes de recibir peticiones de clientes.
 2.  ****ECS Deployment Circuit Breaker:****
     -   Se activa la funcionalidad nativa `deploymentCircuitBreaker: { enable: true, rollback: true }`.
-    -   Si las nuevas tareas fallan consecutivamente los __Health Checks__ del ALB durante la fase de lanzamiento, el despliegue se detiene automáticamente, elimina los contenedores defectuosos y restablece el servicio a la versión anterior estable sin intervención manual.
+    -   Si las nuevas tareas fallan consecutivamente los __Health Checks__ del Application Load Balancer durante la fase de lanzamiento, el despliegue se detiene automáticamente, elimina los contenedores defectuosos y restablece el servicio a la versión anterior estable sin intervención manual.
 ---
 
-## 6. Registros de Decisiones de Arquitectura (ADRs)
+## 6. Decisiones de Arquitectura (ADRs)
 
 ### ADR 001: Patrón Database per Service
-* **Estado:** Aceptado
 * **Contexto:** Se requiere desacoplar el monolito logístico para permitir que el módulo de pedidos e inventario escalen de forma independiente.
 * **Decisión:** Cada microservicio gestiona su propia base de datos de manera aislada. Se prohíben accesos directos o consultas cruzadas a nivel de BD.
 * **Consecuencias:** Garantiza autonomía de despliegue y evita acoplamiento de esquema. Requiere el uso de APIs REST e integración orientada a eventos (EDA) para consistencia eventual.
 
 ### ADR 002: Manejo de Resiliencia mediante Circuit Breaker
-* **Estado:** Aceptado
 * **Contexto:** La validación de inventario al crear una orden es una llamada síncrona propensa a fallar si `inventory-service` experimenta latencia o caídas.
 * **Decisión:** Integración de Resilience4j en `order-service`. Ante una interrupción del servicio de inventario, la orden se guarda en estado `PENDIENTE` y se emite un evento a Kafka para garantizar tolerancia a fallos.
 * **Consecuencias:** Evita fallos en cascada, protegiendo los hilos del servidor y garantizando que la orden del cliente no se pierda.
 
 ### ADR 003: Estandarización del Código SKU (`productCode`)
-* **Estado:** Aceptado
 * **Contexto:** Exponer identificadores primarios autogenerados por la base de datos (`id: Long`) genera acoplamiento a la persistencia interna y ambigüedades en sistemas distribuidos.
 * **Decisión:** La comunicación externa e inter-servicio se realiza mediante la clave de negocio `productCode` (String). El ID numérico se oculta en la capa de infraestructura interna.
 * **Consecuencias:** Mejora la semántica de dominio (DDD) y desacopla las APIs externas de la estrategia de claves primarias internas.
 
 ### ADR 004: Procesamiento Batch y Verificación Atómica
-* **Estado:** Aceptado
 * **Contexto:** Un pedido puede incluir múltiples productos. Descontar parcialmente el stock de un pedido cuando otro producto no tiene existencias genera datos inconsistentes y problemas logísticos.
 * **Decisión:** `inventory-service` expone una interfaz de descuento en lote que evalúa la totalidad del pedido bajo el principio *All-or-Nothing*.
-* **Consecuencias:** Previene descuentos parciales e inconsistencias logísticas sin añadir la sobrecarga de transacciones distribuidas complejas (2PC).
+* **Consecuencias:** Previene descuentos parciales e inconsistencias logísticas sin añadir la sobrecarga de transacciones distribuidas complejas.
 
 ### ADR 005: Selección de AWS ECS Fargate frente a Kubernetes (EKS)
-* **Estado:** Aceptado
 * **Contexto:** Evaluación de la plataforma de orquestación de contenedores en AWS para equilibrar flexibilidad, costo y complejidad operativa.
 * **Decisión:** Seleccionar AWS ECS Fargate para el cómputo de la plataforma.
-* **Consecuencias:** Elimina la complejidad operativa de administrar nodos Kubernetes o clústeres EC2, reduciendo el costo total de propiedad (TCO).
+* **Consecuencias:** Elimina la complejidad operativa de administrar nodos Kubernetes o clústeres EC2, reduciendo el costo total de propiedad.
 
 ### ADR 006: Saga Coreografiada Híbrida para Reconciliación Asíncrona
-* **Estado:** Aceptado
 * **Contexto:** Cuando `inventory-service` está caído, el Fallback de Circuit Breaker en `order-service` asigna el estado `PENDIENTE`. Sin un mecanismo de reconciliación, las órdenes quedan en un estado huérfano de forma permanente.
 * **Decisión:** Implementar una Saga por Coreografía utilizando Apache Kafka como bus de eventos duradero. `inventory-service` consume eventos en estado `PENDIENTE` al reiniciar, procesa el descuento de stock diferido y responde vía el tópico `inventory-events` para que `order-service` actualice el estado final (`CONFIRMADO` o `RECHAZADO`).
 * **Consecuencias:** Se garantiza la consistencia eventual sin acoplamiento síncrono ni bloqueos de transacciones cruzadas. Permite a `notification-service` registrar la trazabilidad histórica completa del pedido.
