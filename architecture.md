@@ -40,9 +40,12 @@ graph TD
         NotifSvc --> DB_Notif[("Notification DB")]
     end
 
-    subgraph Event ["Event-Driven Boundary"]
-        OrderSvc -->|"Publish Events"| Kafka{"Apache Kafka :9092"}
-        Kafka -->|"Consume Events"| NotifSvc
+    subgraph Event ["Event-Driven Boundary (Saga Pattern)"]
+        OrderSvc -->|"1. Publica order-events (PENDIENTE)"| Kafka{"Apache Kafka :9092"}
+        Kafka -->|"2. Consume order-events (PENDIENTE)"| InvSvc
+        InvSvc -->|"3. Publica inventory-events (SUCCESS/FAILED)"| Kafka
+        Kafka -->|"4. Consume inventory-events"| OrderSvc
+        Kafka -->|"5. Consume todos los eventos (Auditoría)"| NotifSvc
     end
 ```
 
@@ -61,28 +64,44 @@ sequenceDiagram
 
     Cliente->>Order: POST /api/v1/orders (customerId, items[])
     
-    alt Servicio de Inventario Disponible
+    alt Servicio de Inventario Disponible (Camino Feliz REST)
         Order->>Inv: POST /api/v1/inventory/deduct (items[])
         alt Stock Suficiente en TODOS los Productos
             Inv-->>Order: 200 OK (true)
             Order->>Order: Estado = CONFIRMED
-            Order->>Kafka: Publish (OrderConfirmedEvent)
+            Order->>Kafka: Publica (OrderConfirmedEvent)
             Order-->>Cliente: 201 Created (Estado: CONFIRMED)
         else Stock Insuficiente
             Inv-->>Order: 200 OK (false)
             Order->>Order: Estado = REJECTED
-            Order->>Kafka: Publish (OrderRejectedEvent)
+            Order->>Kafka: Publica (OrderRejectedEvent)
             Order-->>Cliente: 201 Created (Estado: REJECTED)
         end
-    else Indisponibilidad / Red Caída (Circuit Breaker OPEN)
+    else Indisponibilidad / Red Caída (Circuit Breaker OPEN / Fallback)
         Note over Order,Inv: Resilience4j Fallback Triggered
         Order->>Order: Estado = PENDING
-        Order->>Kafka: Publish (OrderPendingEvent)
-        Order-->>Cliente: 201 Created (Estado: PENDING)
+        Order->>Kafka: Publica OrderPendingEvent (incluye items[])
+        Order-->>Cliente: 202 Accepted (Estado: PENDING)
+        
+        Note over Inv,Kafka: RECONCILIACIÓN ASÍNCRONA (SAGA)
+        Note over Inv: inventory-service se restablece (UP)
+        Kafka->>Inv: Consume OrderPendingEvent acumulados
+        Inv->>Inv: Descuenta Stock en BD
+        alt Stock Suficiente en Reconciliación
+            Inv->>Kafka: Publica INVENTORY_SUCCESS
+            Kafka->>Order: Consume INVENTORY_SUCCESS
+            Order->>Order: Estado = CONFIRMED
+            Order->>Kafka: Publica OrderConfirmedEvent
+        else Stock Insuficiente en Reconciliación
+            Inv->>Kafka: Publica INVENTORY_FAILED
+            Kafka->>Order: Consume INVENTORY_FAILED
+            Order->>Order: Estado = REJECTED
+            Order->>Kafka: Publica OrderRejectedEvent
+        end
     end
 
-    Kafka-->>Notif: Consume Event
-    Notif->>Notif: Procesar Notificación Asíncrona
+    Kafka-->>Notif: Consume Eventos
+    Notif->>Notif: Registrar Log de Auditoría
 ```
 ---
 
@@ -168,8 +187,10 @@ graph TD
     OrderTask --> DB_Order
     InvTask --> DB_Inv
     NotifTask --> DB_Notif
-    OrderTask --> MSK
-    MSK --> NotifTask
+
+    OrderTask <-->|"Produce order-events / Consume inventory-events"| MSK
+    InvTask <-->|"Consume order-events / Produce inventory-events"| MSK
+    MSK -->|"Consume all events"| NotifTask
 ```
 
 ---
@@ -198,8 +219,11 @@ graph TD
 
 #### D. Bus de Eventos: Amazon MSK (Managed Streaming for Apache Kafka)
 * **Configuración:** Clúster administrado desplegado en 3 Zonas de Disponibilidad (Multi-AZ) para asegurar cero pérdida de eventos (*Replication Factor = 3*, *min.insync.replicas = 2*).
-* **Estrategia de Particionamiento:** Tópico `order-events` particionado por la clave de negocio (`customerId` o `productCode`) para garantizar la ordenación estricta de mensajes pertenecientes a la misma entidad.
-* **Monitoreo de Lag:** Control continuo del *Consumer Group Lag* en `notification-service` para detectar cuellos de botella mediante Prometheus.
+* **Tópicos Administrados (Saga Coreografiada):**
+  * `order-events`: Emisión de eventos del ciclo de vida del pedido (`PENDIENTE`, `CONFIRMADO`, `RECHAZADO`). Particionado por `orderId` para garantizar ordenamiento estricto.
+  * `inventory-events`: Respuestas asíncronas de la Saga emitidas por `inventory-service` (`INVENTORY_SUCCESS`, `INVENTORY_FAILED`) tras procesar descuentos diferidos.
+* **Estrategia de Resiliencia:** Descuento de stock en lote (*All-or-Nothing*) y replayability mediante offsets de Kafka para procesar transacciones acumuladas tras periodos de indisponibilidad.
+* **Monitoreo de Lag:** Control continuo del *Consumer Group Lag* en `inventory-service`, `order-service` y `notification-service` para detectar cuellos de botella mediante Prometheus/CloudWatch.
 
 #### E. Seguridad de Red e Infraestructura
 * **AWS WAF (Web Application Firewall):** Inspección de tráfico web entrante en el Load Balancer para mitigar ataques OWASP Top 10, SQLi, XSS y aplicar *Rate Limiting*.
