@@ -129,7 +129,7 @@ sequenceDiagram
 
     K->>NS: Consume Evento Final (CONFIRMADO / RECHAZADO)
     NS->>NS: Guarda Log Auditoría #2 (CONFIRMADO / RECHAZADO)
-
+```
 ---
 
 ## 4. Despliegue Target en la Nube (AWS Architecture)
