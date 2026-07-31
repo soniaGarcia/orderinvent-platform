@@ -29,6 +29,10 @@ services:
       - "8081:8081"
     environment:
       SPRING_DATASOURCE_URL: jdbc:h2:mem:inventory_db;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092   
+    depends_on:
+      kafka:
+        condition: service_healthy                   
     networks:
       - orderinvent-net
 
